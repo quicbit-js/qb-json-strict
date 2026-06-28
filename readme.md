@@ -128,31 +128,37 @@ search/scan use cases that don't need content validation keep the full raw speed
 ### Compared to other JS libraries
 
 Speed *and* code footprint matter — especially in the browser. Throughput is on 64 MB of
-representative JSON (Apple M2 Pro, Node 22); bundle size is esbuild `--minify` + gzip,
-including transitive dependencies:
+representative JSON (Apple M2 Pro, Node 22). **Browser bundle** is the real total shipped to a
+browser: esbuild `--minify` + gzip, **including every transitive dependency *and* the Node
+`Buffer`/`Stream` polyfills** a bundler must inject:
 
-| library | role | MB/s | vs `JSON.parse` | bundle (min+gzip) | deps | no Node polyfill |
-|---|---|--:|--:|--:|--:|:--:|
-| `JSON.parse` (native, C++) | parse → value tree | ~700 | 1.00× | built-in | — | ✅ |
-| **qb-json-strict** `next_strict()` | **validating tokenizer** | **420** | **0.60×** | **3.0 KB** | 1 | ✅ |
-| qb-json-next `next()` | tokenizer (structure only) | 640 | 0.92× | 2.0 KB | 0 | ✅ |
-| @streamparser/json | tokenizer / parser | 84 / 70 | 0.12× | 5.6 KB | 0 | ✅ |
-| clarinet | SAX parser | 135 | 0.19× | 3.6 KB † | 0 | ⚠️ stream |
-| jsonparse | streaming parser | 98 | 0.14× | 2.2 KB † | 0 | ⚠️ Buffer |
+| library | role | MB/s | vs `JSON.parse` | browser bundle (min+gzip) | needs in browser |
+|---|---|--:|--:|--:|---|
+| `JSON.parse` (native, C++) | parse → value tree | ~700 | 1.00× | 0 KB (built-in) | nothing |
+| **qb-json-strict** `next_strict()` | **validating tokenizer** | **420** | **0.60×** | **3.2 KB** | nothing |
+| qb-json-next `next()` | tokenizer (structure only) | 640 | 0.92× | 2.2 KB | nothing |
+| @streamparser/json | tokenizer / parser | 84 / 70 | 0.12× | 5.6 KB | nothing (`TextDecoder`) |
+| jsonparse | streaming parser | 98 | 0.14× | 10.7 KB | Buffer polyfill |
+| clarinet | SAX parser | 135 | 0.19× | 51.4 KB | Buffer + Stream polyfills |
 
-† bundle excludes the Node `Buffer` / `Stream` polyfill these need in a browser (adds several KB more).
+Watch out for "zero dependencies": clarinet and jsonparse declare none, but they assume Node's
+built-in `Buffer`/`Stream`. In a browser those get polyfilled — and the Stream polyfill
+(`readable-stream` & friends) is large, which is why clarinet really costs **~51 KB gzipped**.
+qb and `@streamparser/json` use no Node APIs, so what you see is what you ship.
 
-Among pure-JavaScript libraries, qb-json-strict does the **most** work — full RFC 8259 content
-validation — yet runs **~3–5× faster** than the streaming parsers, in a **~3 KB gzipped**
-bundle with one zero-dependency dependency and no Node polyfills. Native `JSON.parse` (C++) is
-faster at building a value tree, but cannot tokenize/validate *incrementally* over partial
-buffers without allocating that tree — which is exactly qb's niche.
+Bottom line: among pure-JavaScript libraries, qb-json-strict does the **most** work (full
+RFC 8259 content validation) yet runs **~3–5× faster** than the streaming parsers in a
+**~3 KB** browser bundle — about **16× smaller than clarinet** and **3× smaller than jsonparse**.
+Native `JSON.parse` (C++, 0 KB) is faster at building a value tree, but cannot
+tokenize/validate *incrementally* over partial buffers without allocating that tree — qb's niche.
 
-Reproduce with `npm run compare` (the other libraries are optional, not dependencies):
+Reproduce (the tooling and compared libraries are optional, not dependencies):
 
 ```
 npm install --no-save clarinet jsonparse @streamparser/json
-npm run compare
+npm run compare       # throughput
+npm install --no-save esbuild esbuild-plugin-polyfill-node clarinet jsonparse @streamparser/json
+npm run size          # browser bundle footprint
 ```
 
 ## Tests
