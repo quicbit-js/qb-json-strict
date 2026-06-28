@@ -97,7 +97,18 @@ Rules (RFC 8259 §7):
 
 ## Cost note (why this is opt-in, not built in)
 
-The two halves have very different cost:
+MEASURED (see `export/perf.js`, Apple M2 Pro, node 22): the strictness layer costs about
+**38% throughput** on representative mixed JSON (~675 -> ~420 MB/s vs raw qb-json-next).
+
+The original prediction below was that numbers would be "nearly free" and strings the
+expensive half. **The measurement revises that:** both checkers cost about the same
+(~44% numbers-only, ~46% strings-only on type-homogeneous arrays). The reason is that each
+checker is a full *second* pass over the token's bytes plus per-token call overhead, on top
+of the tokenizer's own scan — so the dominant cost is "scan every value byte twice", not the
+specific work (number state machine vs UTF-8 decode). It remains opt-in because skipping all
+of it is precisely the fast path for search/scan use cases.
+
+Original (pre-measurement) reasoning, kept for context:
 - **Numbers** are nearly free — short, a handful of bytes, tiny state machine. Could
   almost be validated unconditionally.
 - **Strings** are the expensive half. The tokenizer's `skip_str` already touches every

@@ -106,6 +106,25 @@ Implementation-defined (`i_`) choices:
 - **UTF-16 / byte-order marks** → **rejected** (input must be UTF-8).
 - **Deeply nested structures** (e.g. 500 levels) → **accepted** (no depth limit).
 
+## Performance
+
+Run `npm run perf` (replicates a sample into a large buffer and tokenizes it five ways).
+On an Apple M2 Pro (node 22), tokenizing 64 MB of representative JSON:
+
+| mode                          | MB/s | vs raw |
+|-------------------------------|-----:|-------:|
+| bare byte scan (ceiling)      | 1095 |   162% |
+| `qb-json-next` `next()` (raw) |  675 |   100% |
+| `next_strict()` (validating)  |  420 |    62% |
+| `validate()` (one-shot)       |  414 |    61% |
+| `JSON.parse` (reference)      |  652 |    97% |
+
+**The strictness layer costs ~38% throughput** (~675 → ~420 MB/s). The cost is roughly
+"scan every value byte a second time": isolating each checker on type-homogeneous data,
+number validation costs ~44% and string validation ~46% — about the same, since both are a
+second per-token pass on top of the tokenizer's own scan. This is exactly why it is opt-in:
+search/scan use cases that don't need content validation keep the full raw speed.
+
 ## Tests
 
 ```
