@@ -1,0 +1,4 @@
+node_modules/
+JSONTestSuite/
+coverage/
+.nyc_output/

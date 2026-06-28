@@ -4,6 +4,25 @@
 > `index.js` (draft) and `test.js` (skeleton). Working dir for this package is
 > `/Users/dad/ghub/qb-json-strict`.
 
+## STATUS — implemented (2026-06-27)
+
+The brief below is realized. Current state:
+
+- `index.js`: `next_strict` wrapper, `check_number`, `check_string` (full UTF-8 validation —
+  overlong, surrogates, out-of-range, truncated), and a one-shot `validate(src)` document API.
+- Error model: matches `next()` — sets sticky `ps.ecode = BAD_VALUE`, then `opt.err(ps)` if
+  given else throws with `.parse_state` (open question 2 resolved).
+- Keys are string-validated (open question 3 resolved — done in the wrapper).
+- Package name kept as `qb-json-strict` (open question 1 resolved).
+- Tests: `npm test` (96 self-contained table assertions) and `npm run test:suite`
+  (JSONTestSuite). **Conformance: 95/95 y_, 188/188 n_.** See `readme.md` for i_ choices.
+
+Key discovery during implementation: `qb-json-next` is a *lenient streaming* tokenizer — it
+permits multiple top-level values, stray closing brackets, leading/trailing commas, and
+treats `\b`/`\f` as whitespace. So "structure is already conformant" (below) holds for the
+*token stream* but NOT for single-document strictness. That document-level tightening lives in
+`validate()`, not in the per-token `next_strict()`, keeping the incremental fast path clean.
+
 ## Purpose
 
 `qb-json-next` is a very fast (~560 MB/sec measured, ~82% of a bare byte-scan loop)
