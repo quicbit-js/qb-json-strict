@@ -125,6 +125,21 @@ number validation costs ~44% and string validation ~46% — about the same, sinc
 second per-token pass on top of the tokenizer's own scan. This is exactly why it is opt-in:
 search/scan use cases that don't need content validation keep the full raw speed.
 
+### Compared to other JS parsers
+
+`npm run compare` benchmarks against native `JSON.parse` and (if installed) other JS JSON
+libraries. Among **pure-JavaScript** tokenizers/streaming parsers, qb is the fastest by a
+wide margin — the validating `next_strict()` runs ~5× faster than `@streamparser/json`'s
+tokenizer and ~3× faster than `clarinet`, while doing full RFC 8259 validation. Native
+`JSON.parse` (C++) is still fastest for building a value tree (the raw `qb-json-next`
+tokenizer reaches ~0.9× of it); qb's edge is incremental/streaming tokenizing and validating
+without allocating a tree. The other libraries are not dependencies:
+
+```
+npm install --no-save clarinet jsonparse @streamparser/json
+npm run compare
+```
+
 ## Tests
 
 ```

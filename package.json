@@ -28,7 +28,8 @@
     "test:suite": "node test-suite.js",
     "test:all": "tape test.js && node test-suite.js",
     "cov": "tap --coverage-report=html test.js",
-    "perf": "node export/perf.js"
+    "perf": "node export/perf.js",
+    "compare": "node export/compare.js"
   },
   "keywords": [
     "json",
