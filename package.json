@@ -3,6 +3,19 @@
   "version": "0.1.0",
   "description": "Opt-in RFC 8259 number/string content validation layer over qb-json-next",
   "main": "index.js",
+  "homepage": "https://github.com/quicbit-js/qb-json-strict",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/quicbit-js/qb-json-strict.git"
+  },
+  "bugs": {
+    "url": "https://github.com/quicbit-js/qb-json-strict/issues"
+  },
+  "files": [
+    "index.js",
+    "LICENSE",
+    "readme.md"
+  ],
   "dependencies": {
     "qb-json-next": "^2.1.7"
   },
