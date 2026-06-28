@@ -125,15 +125,30 @@ number validation costs ~44% and string validation ~46% — about the same, sinc
 second per-token pass on top of the tokenizer's own scan. This is exactly why it is opt-in:
 search/scan use cases that don't need content validation keep the full raw speed.
 
-### Compared to other JS parsers
+### Compared to other JS libraries
 
-`npm run compare` benchmarks against native `JSON.parse` and (if installed) other JS JSON
-libraries. Among **pure-JavaScript** tokenizers/streaming parsers, qb is the fastest by a
-wide margin — the validating `next_strict()` runs ~5× faster than `@streamparser/json`'s
-tokenizer and ~3× faster than `clarinet`, while doing full RFC 8259 validation. Native
-`JSON.parse` (C++) is still fastest for building a value tree (the raw `qb-json-next`
-tokenizer reaches ~0.9× of it); qb's edge is incremental/streaming tokenizing and validating
-without allocating a tree. The other libraries are not dependencies:
+Speed *and* code footprint matter — especially in the browser. Throughput is on 64 MB of
+representative JSON (Apple M2 Pro, Node 22); bundle size is esbuild `--minify` + gzip,
+including transitive dependencies:
+
+| library | role | MB/s | vs `JSON.parse` | bundle (min+gzip) | deps | no Node polyfill |
+|---|---|--:|--:|--:|--:|:--:|
+| `JSON.parse` (native, C++) | parse → value tree | ~700 | 1.00× | built-in | — | ✅ |
+| **qb-json-strict** `next_strict()` | **validating tokenizer** | **420** | **0.60×** | **3.0 KB** | 1 | ✅ |
+| qb-json-next `next()` | tokenizer (structure only) | 640 | 0.92× | 2.0 KB | 0 | ✅ |
+| @streamparser/json | tokenizer / parser | 84 / 70 | 0.12× | 5.6 KB | 0 | ✅ |
+| clarinet | SAX parser | 135 | 0.19× | 3.6 KB † | 0 | ⚠️ stream |
+| jsonparse | streaming parser | 98 | 0.14× | 2.2 KB † | 0 | ⚠️ Buffer |
+
+† bundle excludes the Node `Buffer` / `Stream` polyfill these need in a browser (adds several KB more).
+
+Among pure-JavaScript libraries, qb-json-strict does the **most** work — full RFC 8259 content
+validation — yet runs **~3–5× faster** than the streaming parsers, in a **~3 KB gzipped**
+bundle with one zero-dependency dependency and no Node polyfills. Native `JSON.parse` (C++) is
+faster at building a value tree, but cannot tokenize/validate *incrementally* over partial
+buffers without allocating that tree — which is exactly qb's niche.
+
+Reproduce with `npm run compare` (the other libraries are optional, not dependencies):
 
 ```
 npm install --no-save clarinet jsonparse @streamparser/json
