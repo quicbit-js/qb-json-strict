@@ -1,10 +1,12 @@
-// Measure the real BROWSER bundle footprint (minified + gzipped) of qb-json-strict /
-// qb-json-next and other JS JSON parsers — including the Node polyfills (Buffer, Stream)
-// and all their transitive dependencies that a bundler must inject for browser use.
+// Measure the real BROWSER code footprint (minified) of qb-json-strict / qb-json-next and
+// other JS JSON parsers — the minified JavaScript that actually ships, gets decompressed,
+// parsed, and run. Gzip (in parens) is only the network-transfer cost.
 //
-// This is the honest "total KB to ship to a browser". Libraries that declare zero npm
-// dependencies can still be large in a browser if they assume Node built-ins: clarinet and
-// jsonparse use the Buffer global / require('stream'), so a bundler substitutes polyfills.
+// "Minified" here is the minified source of every module that must ship to run in a browser:
+//   - qb-json-strict / qb-json-next have no dependencies and use no Node APIs, so it is just
+//     their own index.js file(s) minified — no bundler wrapper.
+//   - clarinet and jsonparse declare zero npm deps but assume Node's built-in Buffer / Stream,
+//     which a browser must polyfill; those polyfills are bundled in (that is real shipped code).
 //
 // The tooling and the compared libraries are not dependencies of this package. Run:
 //
@@ -32,41 +34,75 @@ try {
   process.exit(0)
 }
 
-const bufferGlobal = () => polyfillNode({ globals: { buffer: true, process: false, navigator: false }, polyfills: { buffer: true } })
-const bufferStream = () => polyfillNode({ globals: { buffer: true, process: false, navigator: false }, polyfills: { buffer: true, stream: true, string_decoder: true, events: true } })
-
-// [label, entryCode, plugins, note]. qb-json-strict is bundled from this repo's index.js.
-const targets = [
-  ['qb-json-strict', `import m from ${JSON.stringify(repoIndex)}; export default m`, [], 'no node APIs (incl. qb-json-next)'],
-  ['qb-json-next', "import m from 'qb-json-next'; export default m", [], 'no node APIs'],
-  ['@streamparser/json', "import * as m from '@streamparser/json'; export default m", [], 'uses TextDecoder (browser global)'],
-  ['jsonparse', "import m from 'jsonparse'; export default m", [bufferGlobal()], '+ Buffer polyfill'],
-  ['clarinet', "import m from 'clarinet'; export default m", [bufferStream()], '+ Buffer + Stream polyfills']
-]
-
-function resolvable (label) {
-  if (label === 'qb-json-strict') return true
-  try { require.resolve(label); return true } catch (e) { return false }
+const KB = (n) => (n / 1024).toFixed(1) + ' KB'
+function report (label, bytes, code, note) {
+  const gz = zlib.gzipSync(Buffer.from(code), { level: 9 }).length
+  console.log(label.padEnd(22) + KB(bytes).padStart(11) + ('(' + KB(gz) + ')').padStart(12) + '   ' + note)
 }
 
-console.log('browser bundle (esbuild --minify, platform=browser), node ' + process.version + '\n')
-console.log('library'.padEnd(22) + 'min'.padStart(9) + 'min+gzip'.padStart(11) + '   includes')
-const skipped = []
-for (const [label, entry, plugins, note] of targets) {
-  if (!resolvable(label)) { skipped.push(label); continue }
-  try {
-    const res = await esbuild.build({
-      stdin: { contents: entry, resolveDir: here, loader: 'js' },
-      bundle: true, minify: true, format: 'esm', platform: 'browser', write: false, logLevel: 'silent', plugins
-    })
-    const out = res.outputFiles[0].contents
-    const gz = zlib.gzipSync(Buffer.from(out), { level: 9 }).length
-    console.log(label.padEnd(22) + (out.length / 1024).toFixed(1).padStart(7) + 'KB' + (gz / 1024).toFixed(1).padStart(8) + 'KB   ' + note)
-  } catch (e) {
-    console.log(label.padEnd(22) + '  ERROR ' + String(e.message || e).slice(0, 50))
+// minify each given source file on its own (no bundle wrapper); sum bytes, concat for gzip.
+// Uses build(bundle:false) rather than transform() so top-level identifiers are mangled
+// (transform() leaves them, since standalone it can't prove they're module-private).
+async function minifyFiles (paths) {
+  let bytes = 0
+  const chunks = []
+  for (const p of paths) {
+    const r = await esbuild.build({ entryPoints: [p], minify: true, bundle: false, format: 'esm', write: false, logLevel: 'silent' })
+    const code = r.outputFiles[0].text
+    bytes += Buffer.byteLength(code)
+    chunks.push(code)
   }
+  return { bytes, code: chunks.join('\n') }
 }
+
+// bundle (to pull in deps + injected Node polyfills) and minify — for multi-module libraries
+async function bundleMinify (entry, plugins) {
+  const res = await esbuild.build({
+    stdin: { contents: entry, resolveDir: here, loader: 'js' },
+    bundle: true, minify: true, format: 'esm', platform: 'browser', write: false, logLevel: 'silent', plugins
+  })
+  const code = res.outputFiles[0].text
+  return { bytes: Buffer.byteLength(code), code }
+}
+
+const bufferGlobal = polyfillNode({ globals: { buffer: true, process: false, navigator: false }, polyfills: { buffer: true } })
+const bufferStream = polyfillNode({ globals: { buffer: true, process: false, navigator: false }, polyfills: { buffer: true, stream: true, string_decoder: true, events: true } })
+
+function resolve (name) { try { return require.resolve(name) } catch (e) { return null } }
+
+console.log('minified JS shipped to a browser (gzip in parens), esbuild, node ' + process.version + '\n')
+console.log('library'.padEnd(22) + 'minified'.padStart(11) + '(gzip)'.padStart(12) + '   includes')
+
+const skipped = []
+
+// qb-json-strict: own index.js + qb-json-next index.js (no deps beyond that, no polyfills)
+{
+  const next = resolve('qb-json-next')
+  if (next) { const r = await minifyFiles([repoIndex, next]); report('qb-json-strict', r.bytes, r.code, 'own code + qb-json-next, no polyfills') }
+  else { skipped.push('qb-json-next (needed by qb-json-strict)') }
+}
+// qb-json-next: just its index.js
+{
+  const next = resolve('qb-json-next')
+  if (next) { const r = await minifyFiles([next]); report('qb-json-next', r.bytes, r.code, 'single file, no deps/polyfills') }
+}
+// @streamparser/json: multi-file ESM, no Node polyfills
+if (resolve('@streamparser/json')) {
+  const r = await bundleMinify("import * as m from '@streamparser/json'; export default m", [])
+  report('@streamparser/json', r.bytes, r.code, 'no polyfills (TextDecoder)')
+} else { skipped.push('@streamparser/json') }
+// jsonparse: own code + Buffer polyfill
+if (resolve('jsonparse')) {
+  const r = await bundleMinify("import m from 'jsonparse'; export default m", [bufferGlobal])
+  report('jsonparse', r.bytes, r.code, '+ Buffer polyfill')
+} else { skipped.push('jsonparse') }
+// clarinet: own code + Buffer + Stream polyfills
+if (resolve('clarinet')) {
+  const r = await bundleMinify("import m from 'clarinet'; export default m", [bufferStream])
+  report('clarinet', r.bytes, r.code, '+ Buffer + Stream polyfills')
+} else { skipped.push('clarinet') }
+
 if (skipped.length) {
   console.log('\nskipped (not installed): ' + skipped.join(', '))
-  console.log('  npm install --no-save ' + skipped.join(' '))
+  console.log('  npm install --no-save esbuild esbuild-plugin-polyfill-node clarinet jsonparse @streamparser/json')
 }
